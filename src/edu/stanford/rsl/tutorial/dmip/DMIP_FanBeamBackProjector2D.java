@@ -61,9 +61,9 @@ public class DMIP_FanBeamBackProjector2D {
 		this.detectorLength = detectorSpacing*detectorPixels;
 		
 		
-		double halfFanAngle = 0;//TODO
+		double halfFanAngle = Math.atan(detectorLength/2.0/focalLength);//TODO
 		System.out.println("Half fan angle: " + halfFanAngle*180.0/Math.PI);
-		//TODO
+		this.maxBeta=maxRot+2.0*halfFanAngle ;
 		this.betaIncrement = maxBeta /(double) numProjs;
 		System.out.println("Short-scan range: " + maxBeta*180/Math.PI);
 	}
@@ -75,7 +75,7 @@ public class DMIP_FanBeamBackProjector2D {
 	 * @param spacing the spacing of the output image
 	 * @return the reconstruction
 	 */
-	public Grid2D backproject(Grid2D sino, int[] recoSize, double[] spacing)
+	public Grid2D backproject(Grid2D sino, int[] recoSize, double[] spacing)//spacing=resolution
 	{
 		Grid2D result = new Grid2D(recoSize[0], recoSize[1]);
 		result.setSpacing(spacing[0], spacing[1]);
@@ -88,31 +88,32 @@ public class DMIP_FanBeamBackProjector2D {
 			float sinBeta = (float) Math.sin(beta);
 			
 			//Compute direction and normal of the detector at the current rotation angle
-			final PointND detBorder = new PointND();//TODO
-			final SimpleVector dirDet = new SimpleVector();//TODO
+			final PointND detBorder = new PointND(-detectorLength/2.0*sinBeta,detectorLength/2.0*cosBeta,0.d);//TODO
+			final SimpleVector dirDet = detBorder.getAbstractVector().multipliedBy(-1.0);
 			final StraightLine detLine = new StraightLine(detBorder, dirDet);
 			
 			//Compute rotated source point
 			final PointND source = new PointND(focalLength * cosBeta, focalLength*sinBeta, 0.d);
 			
-			//pick current projection
+			//pick current projection(one column)
 			Grid1D currProj = sino.getSubGrid(p);
 			
 			//pixel driven BP: iterate over all output image pixels
 			for(int x = 0; x < recoSize[0]; x++)
 			{
 				//transform the image pixel coordinates to world coordinates
-				float wx =0; //TODO
+				float wx =(float)((x-recoSize[0]/2.0+0.5f)*spacing[0]); //TODOfrom the center of the image to 0,0
 				
 				for(int y = 0; y < recoSize[1]; y++)
 				{
-					float wy = 0;//TODO
+					float wy = (float)((y-recoSize[1]/2.0+0.5f)*spacing[1]);//TODO
 					
 					final PointND reconstructionPointWorld = new PointND(wx, wy, 0.d);
 
 					//intersect the projection ray with the detector
 					//TODO
-					final PointND detPixel = new PointND();//TODO
+					final StraightLine projectLine=new StraightLine(source,reconstructionPointWorld);
+					final PointND detPixel =projectLine.intersect(detLine);
 					
 					float valueTemp;
 					
@@ -120,8 +121,8 @@ public class DMIP_FanBeamBackProjector2D {
 					{
 						//calculate position of the projected point on the 1D detector
 						final SimpleVector pt = SimpleOperators.subtract(detPixel.getAbstractVector(), detBorder.getAbstractVector());
-						double length = pt.normL2();
-						//deal with truncation
+						double length = pt.normL2();//t
+						//deal with truncation//check if the point hit the detector
 						if(pt.getElement(0)*dirDet.getElement(0)+pt.getElement(1)*dirDet.getElement(1)<0)
 						{
 							length -= length;
@@ -138,7 +139,9 @@ public class DMIP_FanBeamBackProjector2D {
 						//see Fig 1a) exercise sheet
 						//TODO
 						//TODO
-						float dWeight = 0;//TODO
+						float radius=(float)reconstructionPointWorld.getAbstractVector().normL2();
+						float phi=(float)((Math.PI/2.0)+Math.atan2(reconstructionPointWorld.get(1), reconstructionPointWorld.get(0)));
+						float dWeight =(float)(focalLength+radius*Math.sin(beta-phi));//TODO
 						valueTemp = (float) (value / (dWeight*dWeight));
 					}
 					else
@@ -173,7 +176,9 @@ public class DMIP_FanBeamBackProjector2D {
 		Grid1D cosineKernel = new Grid1D(detectorPixels);
 		for(int i=0; i<detectorPixels; ++i){
 			//TODO
-			cosineKernel.setAtIndex(i, 9999);//TODO
+			//cosineKernel.setAtIndex(i, 9999);//TODO
+			double s=(i+0.5)*detectorSpacing-detectorLength/2;
+			cosineKernel.setAtIndex(i, (float)(focalLength/Math.sqrt(focalLength*focalLength+s*s)));
 		}
 		
 		//apply cosine weights to each projection
@@ -221,7 +226,8 @@ public class DMIP_FanBeamBackProjector2D {
 
 				// implement the conditions as described in Parker's paper
 				if (beta <= 2 * (delta - gamma)) {
-					float val = 0; //TODO
+					double tmp=beta*Math.PI/4.0/(delta-gamma);
+					float val = (float)Math.pow(Math.sin(tmp), 2);
 					if (Double.isNaN(val)){
 						continue;
 					}
@@ -231,7 +237,8 @@ public class DMIP_FanBeamBackProjector2D {
 					parker.setAtIndex(t, b , 1);
 				}
 				else if (beta <= (Math.PI + 2.d * delta) + 1e-12) {
-					float val = 0;//TODO
+					double tmp=(Math.PI/4.0)*(Math.PI+2.0*delta-beta)/(delta+gamma);
+					float val = (float)Math.pow(Math.sin(tmp), 2);
 					if (Double.isNaN(val)){
 						continue;
 					}
@@ -264,7 +271,7 @@ public class DMIP_FanBeamBackProjector2D {
 		DMIP_FanBeamBackProjector2D fbp = new DMIP_FanBeamBackProjector2D();
 
 		//Load and visualize the projection image data
-		String filename = "D:/02_lectures/DMIP/exercises/2014/6/Sinogram0.tif";
+		String filename = "/proj/i5dmip/ti16xavo/Reconstruction/CONRAD/src/edu/stanford/rsl/tutorial/dmip/Sinogram0.tif";
 		Grid2D sino = ImageUtil.wrapImagePlus(IJ.openImage(filename)).getSubGrid(0);
 		sino.show("Sinogram");
 		
